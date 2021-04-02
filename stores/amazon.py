@@ -140,6 +140,7 @@ class Amazon:
         self.unknown_title_notification_sent = False
         self.alt_offers = alt_offers
         self.wait_on_captcha_fail = wait_on_captcha_fail
+        self.enable_bn = 1
 
         presence.enabled = not disable_presence
 
@@ -744,7 +745,7 @@ class Amazon:
         while True:
             if not flyout_mode:
                 shipping = self.driver.find_elements_by_xpath(
-                    '//div[@id="deliveryMessageMirId"]'
+                    '//div[@id="deliveryBlockMessage"] | //div[@id="delivery-message"]'
                 )
                 # Convert to prices just in case
                 for idx, shipping_node in enumerate(shipping):
@@ -756,6 +757,8 @@ class Amazon:
                             shipping_prices.append(parse_price(shipping_node.text))
                     else:
                         shipping_prices.append(parse_price("0"))
+                if not shipping_prices:
+                    shipping_prices.append(parse_price("0"))
             else:
                 # Check for offers
                 # offer_xpath = "//div[@id='aod-pinned-offer' or @id='aod-offer']"
@@ -844,14 +847,42 @@ class Amazon:
                 if not flyout_mode:
                     bn_buttons = self.driver.find_elements_by_xpath("//input[@name='submit.buy-now']")
                     for bn_button in bn_buttons:
-                        self.start_time_atc = time.time()
-                        log.info("Trying buy-now")
-                        if self.do_button_click(
-                            button=bn_button, fail_text="Could not click buy-now button"
-                        ):
-                            log.info("Trying to checkout after buy-now")
-                            self.navigate_pages(test=self.testing, exit_immediately=True)
-                            return False
+                        if self.enable_bn >= 1:
+                            log.info("Trying buy-now")
+                            self.enable_bn = 0
+                            self.start_time_atc = time.time()
+
+                            bn_button.click()
+
+                            bn_success = 0
+                            current_title = self.driver.title
+                            timeout = self.get_timeout()
+                            while time.time() < timeout:
+                                if self.driver.title != current_title:
+                                    bn_success = 1
+                                    break
+                                elif self.driver.find_elements_by_xpath("//iframe['turbo-checkout-iframe']"):
+                                    if WebDriverWait(self.driver, 5).until(EC.frame_to_be_available_and_switch_to_it('turbo-checkout-iframe')):
+                                        bn_success = 2
+                                        break
+                                time.sleep(0.05)
+
+                            if bn_success:
+                                if bn_success == 2:
+                                    log.info("iframe found. Placing order")
+                                    pyo_buttons = self.driver.find_elements_by_xpath("//input[@id='turbo-checkout-pyo-button']")
+                                    if pyo_buttons:
+                                        self.click_pno(pyo_buttons[0])
+                                    self.driver.switch_to.parent_frame()
+                                    self.driver.get(AMAZON_URLS["CART_URL"])
+                                    self.wait_for_page_change(page_title=current_title)
+                                else:
+                                    log.info("No iframe found. Checking out")
+                                return True
+                            else:
+                                log.warn("Buy-now failed")
+                        else:
+                            self.enable_bn += 0.2  # Only try buy-now every 5 times
 
                     if self.attempt_atc(
                         asin=asin, max_atc_retries=DEFAULT_MAX_ATC_TRIES
@@ -1440,7 +1471,11 @@ class Amazon:
                 time.sleep(DEFAULT_PAGE_WAIT_DELAY)
                 self.order_retry += 1
                 return
-        if test:
+        self.click_pno(button)
+
+    @debug
+    def click_pno(self, button):
+        if self.testing:
             log.info(f"Found button {button.text}, but this is a test")
             log.info("will not try to complete order")
             log.info(f"test time took {time.time() - self.start_time_atc} to check out")
