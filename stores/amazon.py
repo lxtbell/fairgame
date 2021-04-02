@@ -842,6 +842,17 @@ class Amazon:
                     "./preceding::input[@name='offeringID.1'][1]"
                 )
                 if not flyout_mode:
+                    bn_buttons = self.driver.find_elements_by_xpath("//input[@name='submit.buy-now']")
+                    for bn_button in bn_buttons:
+                        self.start_time_atc = time.time()
+                        log.info("Trying buy-now")
+                        if self.do_button_click(
+                            button=bn_button, fail_text="Could not click buy-now button"
+                        ):
+                            log.info("Trying to checkout after buy-now")
+                            self.navigate_pages(test=self.testing, exit_immediately=True)
+                            return False
+
                     if self.attempt_atc(
                         asin=asin, max_atc_retries=DEFAULT_MAX_ATC_TRIES
                     ):
@@ -974,7 +985,7 @@ class Amazon:
 
     # checkout page navigator
     @debug
-    def navigate_pages(self, test):
+    def navigate_pages(self, test, exit_immediately=False):
         title = self.driver.title
         log.debug(f"Navigating page title: '{title}'")
         # see if this resolves blank page title issue?
@@ -1024,6 +1035,9 @@ class Amazon:
                 )
                 self.handle_unknown_title(title)
         else:
+            if exit_immediately:
+                return
+
             log.debug(f"title is: [{title}]")
             # see if we can handle blank titles here
             time.sleep(
