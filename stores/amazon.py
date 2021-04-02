@@ -58,7 +58,7 @@ AMAZON_URLS = {
 }
 CHECKOUT_URL = "https://{domain}/gp/cart/desktop/go-to-checkout.html/ref=ox_sc_proceed?partialCheckoutCart=1&isToBeGiftWrappedBefore=0&proceedToRetailCheckout=Proceed+to+checkout&proceedToCheckout=1&cartInitiateId={cart_id}"
 
-AUTOBUY_CONFIG_PATH = "config/amazon_config.json"
+AUTOBUY_CONFIG_PATH = os.environ.get("AMAZON_CONFIG", "config/amazon_config.json")
 
 BUTTON_XPATHS = [
     '//input[@name="placeYourOrder1"]',
@@ -172,15 +172,23 @@ class Amazon:
             with open(AUTOBUY_CONFIG_PATH) as json_file:
                 try:
                     config = json.load(json_file)
-                    self.asin_groups = int(config["asin_groups"])
                     self.amazon_website = config.get(
                         "amazon_website", "smile.amazon.com"
                     )
-                    for x in range(self.asin_groups):
-                        self.asin_list.append(config[f"asin_list_{x + 1}"])
-                        self.reserve_min.append(float(config[f"reserve_min_{x + 1}"]))
-                        self.reserve_max.append(float(config[f"reserve_max_{x + 1}"]))
-                    # assert isinstance(self.asin_list, list)
+                    if isinstance(config["asin_groups"], int):
+                        self.asin_groups = int(config["asin_groups"])
+                        for x in range(self.asin_groups):
+                            self.asin_list.append(config[f"asin_list_{x + 1}"])
+                            self.reserve_min.append(float(config[f"reserve_min_{x + 1}"]))
+                            self.reserve_max.append(float(config[f"reserve_max_{x + 1}"]))
+                        # assert isinstance(self.asin_list, list)
+                    else:
+                        asin_groups = config["asin_groups"]
+                        self.asin_groups = len(asin_groups)
+                        for g in asin_groups:
+                            self.asin_list.append(list(g["asin_list"]))
+                            self.reserve_min.append(float(g["reserve_min"]))
+                            self.reserve_max.append(float(g["reserve_max"]))
                 except Exception as e:
                     log.error(f"{e} is missing")
                     log.error(

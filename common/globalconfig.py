@@ -25,7 +25,7 @@ from utils.encryption import load_encrypted_config, create_encrypted_config
 from utils.logger import log
 
 GLOBAL_CONFIG_FILE = "config/fairgame.conf"
-AMAZON_CREDENTIAL_FILE = "config/amazon_credentials.json"
+AMAZON_CREDENTIAL_FILE = os.environ.get("AMAZON_CREDENTIAL_FILE", "config/amazon_credentials.json")
 
 
 def await_credential_input():
@@ -76,7 +76,7 @@ class GlobalConfig:
         if not self.profile_path:
             self.profile_path = os.path.join(
                 os.path.dirname(os.path.abspath("__file__")),
-                self.global_config["FAIRGAME"].get("profile_name", ".profile-amz"),
+                os.environ.get("PROFILE_NAME", self.global_config["FAIRGAME"].get("profile_name", ".profile-amz")),
             )
         return self.profile_path
 
