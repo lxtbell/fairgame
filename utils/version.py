@@ -59,7 +59,7 @@ def get_latest_version():
             return latest_version
         data = r.json()
         latest_version = parse(str(data["tag_name"]))
-    except InvalidVersion:
+    except Exception:
         # Return a safe, but wrong version
         latest_version = parse("0.0")
     return latest_version
