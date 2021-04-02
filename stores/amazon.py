@@ -143,6 +143,7 @@ class Amazon:
         self.unknown_title_notification_sent = False
         self.alt_offers = alt_offers
         self.wait_on_captcha_fail = wait_on_captcha_fail
+        self.enable_bn = 1
 
         presence.enabled = not disable_presence
 
@@ -181,14 +182,14 @@ class Amazon:
                     if isinstance(config["asin_groups"], int):
                         self.asin_groups = int(config["asin_groups"])
                         for x in range(self.asin_groups):
-	                        if float(config[f"reserve_min_{x + 1}"]) > float(
-	                            config[f"reserve_max_{x + 1}"]
-	                        ):
-	                            log.error("Minimum price must be <= maximum price")
-	                            log.error(
-	                                f"    {float(config[f'reserve_min_{x + 1}']):.2f} > {float(config[f'reserve_max_{x + 1}']):.2f}"
-	                            )
-	                            exit(0)
+                            if float(config[f"reserve_min_{x + 1}"]) > float(
+                                config[f"reserve_max_{x + 1}"]
+                            ):
+                                log.error("Minimum price must be <= maximum price")
+                                log.error(
+                                    f"    {float(config[f'reserve_min_{x + 1}']):.2f} > {float(config[f'reserve_max_{x + 1}']):.2f}"
+                                )
+                                exit(0)
 
                         self.asin_list.append(config[f"asin_list_{x + 1}"])
                         self.reserve_min.append(float(config[f"reserve_min_{x + 1}"]))
@@ -467,6 +468,9 @@ class Amazon:
             return False
         # load page
         f = furl(self.ACTIVE_OFFER_URL + asin)
+        if self.alt_offers:
+            # Force the flyout by default
+            f = furl(self.ACTIVE_OFFER_URL + asin + "?aod=1")
         fail_counter = 0
         presence.searching_update()
 
@@ -481,7 +485,7 @@ class Amazon:
                 break
             except Exception:
                 fail_counter += 1
-                log.error(f"Failed to load the offer URL {fail_counter} times.")
+                log.exception(f"Failed to load the offer URL {fail_counter} times.")
                 if fail_counter < DEFAULT_MAX_URL_FAIL:
                     log.error(
                         f"WebDriver will restart if it fails {DEFAULT_MAX_URL_FAIL} times. Retrying now..."
@@ -516,28 +520,38 @@ class Amazon:
                         return False
 
         timeout = self.get_timeout()
-        atc_buttons = None
+        atc_buttons = []
         while True:
             buy_box = False
             # Sanity check to see if we have any offers
             try:
+                direct_purchase_xpaths = join_xpaths([
+                    "//input[@name='submit.buy-now']",
+                    "//input[@name='submit.add-to-cart']",
+                ])
                 # Wait for the page to load before determining what's in it by looking for the footer
                 offer_container = WebDriverWait(
                     self.driver, timeout=DEFAULT_MAX_TIMEOUT
                 ).until(
-                    lambda d: d.find_element_by_xpath(
-                        "//div[@id='aod-container'] | "
-                        "//div[@id='backInStock' or @id='outOfStock'] |"
-                        "//span[@data-action='show-all-offers-display'] | "
-                        "//input[@name='submit.add-to-cart' and not(//span[@data-action='show-all-offers-display'])]"
-                    )
+                    lambda d: d.find_element_by_xpath(join_xpaths([
+                        direct_purchase_xpaths,
+                        "//div[@id='aod-container']",
+                        "//div[@id='olpOfferList']",
+                        "//div[@id='backInStock' or @id='outOfStock']",
+                        "//span[@data-action='show-all-offers-display']",
+                    ]))
                 )
                 offer_count = []
                 offer_id = offer_container.get_attribute("id")
-                if offer_id == "outOfStock" or offer_id == "backInStock":
-                    # No dice... Early out and move on
-                    log.info("Item is currently unavailable.  Moving on...")
-                    return False
+
+                direct_purchase_btns = self.driver.find_elements_by_xpath(direct_purchase_xpaths)
+                if (
+                    direct_purchase_btns
+                ):
+                    buy_box = True
+                    offer_count = self.driver.find_elements_by_xpath(
+                        "//div[@id='qualifiedBuybox']//input[@id='add-to-cart-button']"
+                    )
                 elif offer_id == "aod-container":
                     # Offer Flyout or Ajax call ... count the 'aod-offer' divs that we 'see'
                     offer_count = self.driver.find_elements_by_xpath(
@@ -618,6 +632,10 @@ class Amazon:
                     offer_count = self.driver.find_elements_by_xpath(
                         "//div[@id='qualifiedBuybox']//input[@id='add-to-cart-button']"
                     )
+                elif offer_id == "outOfStock" or offer_id == "backInStock":
+                    # No dice... Early out and move on
+                    log.info("Item is currently unavailable.  Moving on...")
+                    return False
                 else:
                     log.warning(
                         "We found elements, but didn't recognize any of the combinations."
@@ -676,14 +694,23 @@ class Amazon:
             if time.time() > timeout:
                 log.warning(f"Failed to load page for {asin}, going to next ASIN")
                 return False
+            else:
+                time.sleep(0.05)
 
         timeout = self.get_timeout()
         while True:
             if buy_box:
                 prices = self.driver.find_elements_by_xpath(
-                    "//span[@id='price_inside_buybox']"
+                    " | ".join(
+                        [
+                            '//*[@class="a-size-large a-color-price olpOfferPrice a-text-bold"]',
+                            '//span[@id="price_inside_buybox"]',
+                            '//span[@id="newBuyBoxPrice"]',
+                        ]
+                    )
                 )
             else:
+                # Try the flyout x-paths
                 prices = self.driver.find_elements_by_xpath(
                     "//div[@id='aod-pinned-offer' or @id='aod-offer']//span[@class='a-price']//span[@class='a-offscreen']"
                 )
@@ -692,10 +719,11 @@ class Amazon:
             if time.time() > timeout:
                 log.warning(f"failed to load prices for {asin}, going to next ASIN")
                 return False
-        shipping = []
-        shipping_prices = []
+            else:
+                time.sleep(0.05)
 
         timeout = self.get_timeout()
+        shipping_prices = []
         while True:
             # Check for offers"
             if buy_box:
@@ -717,13 +745,26 @@ class Amazon:
             if time.time() > timeout:
                 log.warning(f"failed to load shipping for {asin}, going to next ASIN")
                 return False
+            else:
+                time.sleep(0.05)
 
         in_stock = False
 
         for idx, atc_button in enumerate(atc_buttons):
+            try:
+                if buy_box:
+                    price = parse_price(prices[0].text)
+                    ship_price = shipping_prices[0]
+                else:
+                    price = parse_price(prices[idx].get_attribute("innerHTML"))
+                    ship_price = shipping_prices[idx]
+            except IndexError:
+                log.debug("Price index error")
+                return False
+
             # If the user has specified that they only want free items, we can skip any items
             # that have any shipping cost and early out
-            if not self.checkshipping and shipping_prices[idx].amount_float > 0.00:
+            if not self.checkshipping and ship_price.amount_float > 0.00:
                 continue
 
             # Condition check first, using the button to find the form that will divulge the item's condition
@@ -757,7 +798,6 @@ class Amazon:
                 log.debug("Price index error")
                 return False
             # Include the price, even if it's zero for comparison
-            ship_price = shipping_prices[idx]
             ship_float = ship_price.amount
             price_float = price.amount
             if price_float is None:
@@ -780,11 +820,68 @@ class Amazon:
                 offering_id_elements = atc_button.find_elements_by_xpath(
                     "./preceding::input[@name='offeringID.1'][1] | ./preceding::input[@id='offerListingID']"
                 )
-                if offering_id_elements:
+                if buy_box:
+                    try:
+                        aod_close = self.driver.find_element_by_xpath(
+                            "//i[@aria-label='aod-close']"
+                        )
+                        aod_close.click()
+                        WebDriverWait(self.driver, timeout=DEFAULT_MAX_TIMEOUT).until(
+                            EC.element_to_be_clickable((By.XPATH, direct_purchase_xpaths))
+                        )
+                    except sel_exceptions.NoSuchElementException:
+                        pass
+
+                    bn_buttons = self.driver.find_elements_by_xpath("//input[@name='submit.buy-now']")
+                    for bn_button in bn_buttons:
+                        if self.enable_bn >= 1:
+                            log.info("Trying buy-now")
+                            self.enable_bn = 0
+                            self.start_time_atc = time.time()
+
+                            bn_button.click()
+
+                            bn_success = 0
+                            current_title = self.driver.title
+                            timeout = self.get_timeout()
+                            while time.time() < timeout:
+                                if self.driver.title != current_title:
+                                    bn_success = 1
+                                    break
+                                elif self.driver.find_elements_by_xpath("//iframe['turbo-checkout-iframe']"):
+                                    if WebDriverWait(self.driver, 5).until(EC.frame_to_be_available_and_switch_to_it('turbo-checkout-iframe')):
+                                        bn_success = 2
+                                        break
+                                time.sleep(0.05)
+
+                            if bn_success:
+                                if bn_success == 2:
+                                    log.info("iframe found. Placing order")
+                                    pyo_buttons = self.driver.find_elements_by_xpath("//input[@id='turbo-checkout-pyo-button']")
+                                    if pyo_buttons:
+                                        self.click_pno(pyo_buttons[0])
+                                    self.driver.switch_to.parent_frame()
+                                    self.driver.get(AMAZON_URLS["CART_URL"])
+                                    self.wait_for_page_change(page_title=current_title)
+                                else:
+                                    log.info("No iframe found. Checking out")
+                                return True
+                            else:
+                                log.warn("Buy-now failed")
+                        else:
+                            self.enable_bn += 0.2  # Only try buy-now every 5 times
+
+                    if self.attempt_atc(
+                        asin=asin, max_atc_retries=DEFAULT_MAX_ATC_TRIES
+                    ):
+                        return True
+                    else:
+                        return False
+                elif offering_id_elements:
                     log.info("Attempting Add To Cart with offer ID...")
                     offering_id = offering_id_elements[0].get_attribute("value")
                     if self.attempt_atc(
-                        offering_id, max_atc_retries=DEFAULT_MAX_ATC_TRIES
+                        offering_id=offering_id, max_atc_retries=DEFAULT_MAX_ATC_TRIES
                     ):
                         return True
                     else:
@@ -844,12 +941,12 @@ class Amazon:
                             retry=retry + 1,
                         )
             elif reserve_min > (price_float + ship_float):
-                log.debug(
+                log.info(
                     f"  Min ({reserve_min}) > Price ({price_float} + {ship_float} shipping)"
                 )
 
             elif reserve_max < (price_float + ship_float):
-                log.debug(
+                log.info(
                     f"  Max ({reserve_max}) < Price ({price_float} + {ship_float} shipping)"
                 )
 
@@ -862,14 +959,21 @@ class Amazon:
         log.info(f"Offers exceed price range ({reserve_min:.2f}-{reserve_max:.2f})")
         return in_stock
 
-    def attempt_atc(self, offering_id, max_atc_retries=DEFAULT_MAX_ATC_TRIES):
-        # Open the add.html URL in Selenium
-        f = f"{AMAZON_URLS['ATC_URL']}?OfferListingId.1={offering_id}&Quantity.1=1"
+    def attempt_atc(self, offering_id=None, asin=None, atc_button=None, max_atc_retries=DEFAULT_MAX_ATC_TRIES):
         atc_attempts = 0
         while atc_attempts < max_atc_retries:
             with self.wait_for_page_content_change(timeout=5):
                 try:
-                    self.driver.get(f)
+                    if asin is not None:
+                        # Open the add.html URL in Selenium
+                        f = f"{AMAZON_URLS['ATC_URL']}?ASIN.1={asin}&Quantity.1=1"
+                        self.driver.get(f)
+                    elif offering_id is not None:
+                        # Open the add.html URL in Selenium
+                        f = f"{AMAZON_URLS['ATC_URL']}?OfferListingId.1={offering_id}&Quantity.1=1"
+                        self.driver.get(f)
+                    elif atc_button is not None:
+                        atc_button.click()
                 except sel_exceptions.TimeoutException:
                     log.error("Failed to get page")
                     atc_attempts += 1
@@ -908,7 +1012,7 @@ class Amazon:
 
     # checkout page navigator
     @debug
-    def navigate_pages(self, test):
+    def navigate_pages(self, test, exit_immediately=False):
         title = self.driver.title
         log.debug(f"Navigating page title: '{title}'")
         # see if this resolves blank page title issue?
@@ -959,6 +1063,9 @@ class Amazon:
                 )
                 self.handle_unknown_title(title)
         else:
+            if exit_immediately:
+                return
+
             log.debug(f"title is: [{title}]")
             # see if we can handle blank titles here
             time.sleep(
@@ -1361,7 +1468,11 @@ class Amazon:
                 time.sleep(DEFAULT_PAGE_WAIT_DELAY)
                 self.order_retry += 1
                 return
-        if test:
+        self.click_pno(button)
+
+    @debug
+    def click_pno(self, button):
+        if self.testing:
             self.end_time_atc = time.time()
             log.info(f"Found button {button.text}, but this is a test")
             log.info("will not try to complete order")
