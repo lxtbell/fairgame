@@ -1,1 +1,1 @@
-cmd /k pipenv run python app.py amazon --test
+cmd /c pipenv run python app.py amazon --test
