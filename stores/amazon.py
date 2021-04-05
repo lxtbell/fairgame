@@ -471,7 +471,7 @@ class Amazon:
                         + "/ref=olp_f_new&f_new=true&f_freeShipping=on"
                     )
         else:
-            f = furl(self.ACTIVE_OFFER_URL + asin + "?aod=1")
+            f = furl(self.ACTIVE_OFFER_URL + asin)
         fail_counter = 0
         presence.searching_update()
 
