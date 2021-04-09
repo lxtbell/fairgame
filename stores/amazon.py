@@ -22,6 +22,7 @@ import json
 import math
 import os
 import platform
+import random
 import time
 import re
 from contextlib import contextmanager
@@ -877,7 +878,7 @@ class Amazon:
                         return True
                     else:
                         return False
-                elif offering_id_elements:
+                elif offering_id_elements and random.random() > 0.5:
                     log.info("Attempting Add To Cart with offer ID...")
                     offering_id = offering_id_elements[0].get_attribute("value")
                     if self.attempt_atc(
