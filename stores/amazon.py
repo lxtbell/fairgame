@@ -820,6 +820,7 @@ class Amazon:
                 offering_id_elements = atc_button.find_elements_by_xpath(
                     "./preceding::input[@name='offeringID.1'][1] | ./preceding::input[@id='offerListingID']"
                 )
+                self.start_time_atc = time.time()
                 if buy_box:
                     try:
                         aod_close = self.driver.find_element_by_xpath(
@@ -837,7 +838,6 @@ class Amazon:
                         if self.enable_bn >= 1:
                             log.info("Trying buy-now")
                             self.enable_bn = 0
-                            self.start_time_atc = time.time()
 
                             bn_button.click()
 
@@ -1374,7 +1374,6 @@ class Amazon:
 
     @debug
     def handle_cart(self):
-        self.start_time_atc = time.time()
         log.info("Looking for Proceed To Checkout button...")
         try:
             self.save_screenshot("ptc-page")
