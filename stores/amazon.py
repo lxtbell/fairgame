@@ -592,7 +592,7 @@ class Amazon:
                         )
                         continue
 
-                    if open_offers_link:
+                    if open_offers_link and random.random() > 0.5:
                         log.debug("Attempting to click the open offers link...")
                         try:
                             open_offers_link.click()
