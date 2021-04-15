@@ -2071,7 +2071,7 @@ def get_item_condition(form_action) -> AmazonItemCondition:
         return AmazonItemCondition.Unknown
 
 
-def wait_for_element_by_xpath(d, xpath, timeout=10):
+def wait_for_element_by_xpath(d, xpath, timeout=5):
     try:
         WebDriverWait(d, timeout).until(
             EC.presence_of_element_located((By.XPATH, xpath))
