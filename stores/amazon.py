@@ -850,14 +850,18 @@ class Amazon:
                                     bn_success = 1
                                     break
                                 elif self.driver.find_elements_by_xpath("//iframe['turbo-checkout-iframe']"):
-                                    if WebDriverWait(self.driver, 5).until(EC.frame_to_be_available_and_switch_to_it('turbo-checkout-iframe')):
-                                        bn_success = 2
+                                    log.info("iframe found. Switching to iframe")
+                                    try:
+                                        if WebDriverWait(self.driver, 5).until(EC.frame_to_be_available_and_switch_to_it('turbo-checkout-iframe')):
+                                            bn_success = 2
+                                            break
+                                    except sel_exceptions.TimeoutException:
                                         break
                                 time.sleep(0.05)
 
                             if bn_success:
                                 if bn_success == 2:
-                                    log.info("iframe found. Placing order")
+                                    log.info("Switched to iframe. Placing order")
                                     pyo_buttons = self.driver.find_elements_by_xpath("//input[@id='turbo-checkout-pyo-button']")
                                     if pyo_buttons:
                                         self.click_pno(pyo_buttons[0])
