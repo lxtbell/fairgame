@@ -399,6 +399,11 @@ class Amazon:
 
         if self.driver.find_elements_by_xpath('//*[@id="auth-error-message-box"]'):
             log.error("Login failed, delete your credentials file")
+            self.send_notification(
+                message="Login failed, delete your credentials file",
+                page_name="login-failed",
+                take_screenshot=True,
+            )
             time.sleep(240)
             exit(1)
 
